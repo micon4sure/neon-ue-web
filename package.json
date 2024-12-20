@@ -1,0 +1,17 @@
+{
+  "name": "neon-web",
+  "version": "1.0.1",
+  "description": "The web part of NEON UI. An Unreal engine plugin that allows for the creation of web-based UIs.",
+  "main": "dist/index.js",
+  "type": "module",
+  "types": "NEON.d.ts",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "build": "bun build index.ts --outdir dist --format esm"
+  }
+}
