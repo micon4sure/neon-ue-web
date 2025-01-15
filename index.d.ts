@@ -1,15 +1,11 @@
 /// <reference types="vite/client" />
 
 declare namespace NEON {
-  function InvokeUnrealEvent(delegate: string, data?: object): void;
-  const InvokeUnreal: typeof InvokeUnrealEvent;
+  function invokeUnrealEvent(delegate: string, data?: object): void;
+  function invokeUnrealFunction(delegate: string, data?: object): Promise<any>;
+  const invokeUnreal: typeof invokeUnrealEvent;
 
-  function InvokeUnrealFunction(delegate: string, data?: object): Promise<any>;
-
-  function OnInvoke(delegate: string, callback: (data: any) => void): void;
-  const OnInvokeWeb: typeof OnInvoke;
-
-  function InvokeWeb(delegate: string, data: any): void;
+  function onInvoke(delegate: string, callback: (data: any) => void): void;
 }
 
 interface Window {
