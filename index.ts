@@ -1,3 +1,10 @@
+declare global {
+  interface Window {
+    cefQuery: any;
+    NEON_Bridge_Web_Invoke: (delegate: string, data: any) => void;
+  }
+}
+
 // Define the NEON API
 namespace NEON {
   export function invokeUnrealEvent(delegate: string, data: object = {}) {
