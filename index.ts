@@ -1,6 +1,10 @@
 declare global {
   interface Window {
-    cefQuery: any;
+    ue: {
+      neon: {
+        invoke: (payload: string) => Promise<string | void>;
+      };
+    }
     NEON_Bridge_Web_Invoke: (delegate: string, data: any) => void;
   }
 }
@@ -49,105 +53,102 @@ class Log {
 
 export class NEON_Bridge_Web {
 
-  private static callbacks: { [id: string]: (data: object) => void } = {};
+  private static callbacks: { [id: string]: (data: any) => void } = {};
 
-  public static registerCallback(id: string, callback: (data: object) => void) {
+  public static registerCallback(id: string, callback: (data: any) => void) {
     Log.info('Registering NEON callback', id);
     NEON_Bridge_Web.callbacks[id] = callback;
   }
 
-  static invoke(id: string, dataRaw: string = '{}') {
-    let data: object;
-    try {
-      data = JSON.parse(dataRaw)
-    } catch (e) {
-      Log.error('Invoke NEON web callback failed: data is not JSON parseable: ', dataRaw);
-      return;
+  static invoke(id: string, data: any = {}) {
+    let payload: any;
+    if (typeof data === 'string') {
+      try {
+        payload = JSON.parse(data);
+      } catch (e) {
+        Log.error('Invoke NEON web callback failed: data is not JSON parseable: ', data);
+        return;
+      }
+    } else {
+      payload = data;
     }
+
     if (!NEON_Bridge_Web.callbacks[id]) {
       Log.error(`Invoke NEON web callback failed: callback not found: ${id}`);
       return;
     }
 
-    Log.info('Invoke NEON web callback', id, data);
-    NEON_Bridge_Web.callbacks[id](data);
+    Log.info('Invoke NEON web callback', id, payload);
+    NEON_Bridge_Web.callbacks[id](payload);
   }
 }
 
 // Define the NEON Bridge to be called from Web
 class NEON_Bridge_Unreal {
-
   static invokeUnreal(delegate: string, data: any): Promise<void> {
     return NEON_Bridge_Unreal.invokeUnrealEvent(delegate, data);
   }
 
-  static invokeUnrealFunction(delegate: string, data: any): Promise<object> {
-    if (!delegate) {
-      Log.error('NEON.invokeUnrealFunction failed: delegate is required');
-      return Promise.reject({ errorCode: 101, errorMessage: 'Delegate is required' });
+
+  private static async invokeNative(type: 'function' | 'event', delegate: string, data: any): Promise<string> {
+    if (!window.ue.neon) {
+      throw new Error('NEON bridge is not available on window.neon');
     }
-
-    delegate = 'Invoke_' + delegate;
-    Log.info('NEON.invokeUnrealFunction', delegate, data);
-
-    return new Promise<object>((resolve, reject) => {
-      if (!window.cefQuery) {
-        Log.error('NEON.invokeUnrealFunction failed: cefQuery is not defined');
-        return reject({ errorCode: 103, errorMessage: 'cefQuery is not defined' });
-      }
-      window.cefQuery({
-        request: JSON.stringify({
-          type: 'function',
-          delegate,
-          parameters: data
-        }),
-        onSuccess: function (response) {
-          Log.info(`NEON.invokeUnrealFunction[${delegate}] succeeded: ${response}`);
-          try {
-            const result = JSON.parse(response);
-            resolve(result);
-          } catch (e) {
-            Log.error(`NEON.invokeUnrealFunction[${delegate}] failed to parse response: ${response}`);
-            reject({ errorCode: 102, errorMessage: 'Failed to parse response' })
-          }
-        },
-        onFailure: function (errorCode, errorMessage) {
-          Log.error(`NEON.invokeUnrealFunction[${delegate}] failed: ${errorCode} - ${errorMessage}`);
-          reject({ errorCode, errorMessage });
-        }
-      });
+    if (window.ue.neon.invoke === undefined) {
+      throw new Error('NEON bridge invoke method is not available on window.ue.neon.invoke');
+    }
+    const nativeBridge = window.ue.neon;
+    const payload = JSON.stringify({
+      type,
+      delegate,
+      parameters: data ?? {}
     });
+
+    try {
+      const response = await nativeBridge.invoke(payload);
+      if (typeof response === 'string') {
+        return response;
+      }
+      if (response === undefined || response === null) {
+        return '';
+      }
+      return JSON.stringify(response);
+    } catch (error) {
+      Log.error(`NEON.invokeNative[${delegate}] failed`, error);
+      throw new Error('NEON bridge invocation failed');
+    }
   }
 
-  static invokeUnrealEvent(delegate: string, data = {}): Promise<void> {
+  static async invokeUnrealFunction(delegate: string, data: any = {}): Promise<any> {
     if (!delegate) {
       Log.error('NEON.invokeUnrealFunction failed: delegate is required');
-      return Promise.reject({ errorCode: 101, errorMessage: 'Delegate is required' });
+      return Promise.reject('Delegate is required');
     }
-    delegate = 'OnInvoke_' + delegate;
-    Log.info('NEON.invokeUnrealEvent', delegate, data);
 
-    return new Promise<any>((resolve, reject) => {
-      if (!window.cefQuery) {
-        Log.error('NEON.invokeUnrealFunction failed: cefQuery is not defined');
-        return reject({ errorCode: 103, errorMessage: 'cefQuery is not defined' });
-      }
-      window.cefQuery({
-        request: JSON.stringify({
-          type: 'event',
-          delegate,
-          parameters: data
-        }),
-        onSuccess: function (response) {
-          Log.info(`NEON.invokeUnrealEvent[${delegate}] succeeded.`);
-          resolve(null);
-        },
-        onFailure: function (errorCode, errorMessage) {
-          Log.error(`NEON.invokeUnrealEvent[${delegate}] failed: ${errorCode} - ${errorMessage}`);
-          reject({ errorCode, errorMessage });
-        }
-      });
-    });
+    const methodName = `Invoke_${delegate}`;
+    Log.info('NEON.invokeUnrealFunction', methodName, data);
+
+    const response = await NEON_Bridge_Unreal.invokeNative('function', methodName, data);
+    console.log('NEON.invokeUnrealFunction response:', response);
+
+    try {
+      return JSON.parse(response);
+    } catch (e) {
+      Log.error(`NEON.invokeUnrealFunction[${methodName}] failed to parse response: ${response}`);
+      throw new Error('Failed to parse response from Unreal');
+    }
+  }
+
+  static async invokeUnrealEvent(delegate: string, data: any = {}): Promise<void> {
+    if (!delegate) {
+      Log.error('NEON.invokeUnrealEvent failed: delegate is required');
+      return Promise.reject('Delegate is required');
+    }
+
+    const methodName = `OnInvoke_${delegate}`;
+    Log.info('NEON.invokeUnrealEvent', methodName, data);
+
+    await NEON_Bridge_Unreal.invokeNative('event', methodName, data);
   }
 }
 
