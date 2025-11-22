@@ -125,13 +125,36 @@ class NEON_Bridge_Unreal {
 }
 
 // Register IPC Dispatcher for NEON
-if (!window.ue || !window.ue.neon || !window.ue.neon.onInvoke) {
-  throw new Error('NEON IPC registration failed: window.ue.neon.onInvoke is not available');
+let attempts = 0;
+
+function registerIPC() {
+  // NEON registers the window.ue object. We avoid race conditions here.
+  if (!window.ue || !window.ue.neon || !window.ue.neon.onInvoke) {
+    attempts++;
+    let delay = 0;
+
+    // Increase the delay, wait for a maximum of 1 second
+    if (attempts <= 5) {
+      delay = 10;
+    } else if (attempts <= 10) {
+      delay = 100;
+    } else if (attempts == 10) {
+      delay = 500;
+    } else {
+      throw new Error('NEON IPC registration failed: Timeout waiting for window.ue.neon');
+    }
+
+    setTimeout(registerIPC, delay);
+    return;
+  }
+  window.ue.neon.onInvoke((name: string, args: any[]) => {
+    // Dispatch to NEON_Bridge_Web which handles registered callbacks
+    const payload = args.length > 0 ? args[0] : null;
+    NEON_Bridge_Web.invoke(name, payload);
+  });
+  Log.info('NEON IPC registered successfully'); return;
 }
-window.ue.neon.onInvoke((name: string, args: any[]) => {
-  // Dispatch to NEON_Bridge_Web which handles registered callbacks
-  const payload = args.length > 0 ? args[0] : null;
-  NEON_Bridge_Web.invoke(name, payload);
-});
+
+registerIPC();
 
 export default NEON;
